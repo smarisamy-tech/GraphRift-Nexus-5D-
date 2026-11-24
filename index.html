@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GraphRift 5D • Full-Stack GitHub Deployment</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/renderers/CSS2DRenderer.js"></script>
+    <style>
+        html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #030712; font-family: 'Inter', sans-serif; color: #f1f5f9; }
+        #canvas-container, #label-container { position: fixed; inset: 0; }
+        #canvas-container { z-index: 1; }
+        #label-container { z-index: 5; pointer-events: none; }
+        .glass-hud { background: rgba(9, 14, 28, 0.88); backdrop-filter: blur(18px); border: 1px solid rgba(148, 163, 184, 0.16); }
+        .custom-scroll::-webkit-scrollbar { width: 5px; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: rgba(56, 189, 248, 0.4); border-radius: 9999px; }
+    </style>
+</head>
+<body class="select-none">
+    <div id="canvas-container"></div>
+    <div id="label-container"></div>
+
+    <header class="fixed top-3 left-3 right-3 z-30 flex items-center justify-between gap-3 pointer-events-none">
+        <div class="glass-hud px-3.5 py-2 rounded-2xl shadow-2xl flex items-center gap-3 pointer-events-auto border-l-4 border-cyan-400">
+            <div class="w-9 h-9 rounded-xl bg-cyan-500/20 border border-cyan-400/50 flex items-center justify-center">
+                <svg class="w-6 h-6" viewBox="0 0 36 36" fill="none">
+                    <polygon points="18,3 31,10.5 31,25.5 18,33 5,25.5 5,10.5" stroke="#22d3ee" stroke-width="2" fill="rgba(34,211,238,0.12)"/>
+                    <circle cx="18" cy="18" r="3.5" fill="#34d399"/>
+                </svg>
+            </div>
+            <div>
+                <div class="flex items-center gap-2">
+                    <span class="font-extrabold text-sm text-white">GRAPHRIFT <span class="text-cyan-400">5D</span></span>
+                    <span id="backend-status-pill" class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                        Connecting API...
+                    </span>
+                </div>
+                <div id="stage-subtitle" class="text-[11px] font-mono text-slate-400">
+                    Double-Click Sector/Molecule to Burst • Double-Click Again to Hide
+                </div>
+            </div>
+        </div>
+
+        <div class="glass-hud px-3 py-2 rounded-2xl shadow-2xl flex items-center gap-2 pointer-events-auto">
+            <input id="search-input" type="text" placeholder="Filter clusters or aliases..."
+                class="w-56 bg-slate-950/90 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-cyan-400">
+            <button onclick="pullGoogleSheetViaBackend()" class="px-3 py-1.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs transition">
+                🔄 Pull Sheet API
+            </button>
+            <a href="/api/export.xls" class="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/40 text-amber-200 font-semibold text-xs transition">
+                📊 Download .XLS
+            </a>
+            <button onclick="resetCameraView()" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-600 text-xs font-semibold">
+                Overview
+            </button>
+        </div>
+    </header>
+
+    <aside class="fixed top-20 left-3 bottom-3 w-[370px] max-w-[92vw] glass-hud rounded-2xl shadow-2xl z-20 flex flex-col overflow-hidden">
+        <div class="p-2.5 border-b border-slate-800 flex items-center gap-1.5 bg-slate-950/60">
+            <button onclick="switchTab('sectors')" id="btn-tab-sectors" class="px-2.5 py-1 rounded-lg text-xs font-bold bg-cyan-500 text-slate-950">Sectors</button>
+            <button onclick="switchTab('clusters')" id="btn-tab-clusters" class="px-2.5 py-1 rounded-lg text-xs font-semibold text-slate-300 hover:bg-slate-800">Clusters</button>
+            <button onclick="switchTab('jaggard')" id="btn-tab-jaggard" class="px-2.5 py-1 rounded-lg text-xs font-semibold text-slate-300 hover:bg-slate-800">Jaggard</button>
+            <button onclick="switchTab('manage')" id="btn-tab-manage" class="px-2.5 py-1 rounded-lg text-xs font-semibold text-slate-300 hover:bg-slate-800">+ Add / Sheet</button>
+        </div>
+
+        <div id="pane-sectors" class="tab-pane flex-1 overflow-y-auto custom-scroll p-3 space-y-2"></div>
+        <div id="pane-clusters" class="tab-pane hidden flex-1 overflow-y-auto custom-scroll p-3 space-y-2"></div>
+        <div id="pane-jaggard" class="tab-pane hidden flex-1 overflow-y-auto custom-scroll p-3 space-y-2"></div>
+
+        <div id="pane-manage" class="tab-pane hidden flex-1 overflow-y-auto custom-scroll p-3 space-y-3">
+            <div class="p-3 rounded-xl bg-slate-900/90 border border-emerald-500/35 space-y-2">
+                <div class="text-xs font-bold text-emerald-300">Add 2–3 Word Canonical Cluster</div>
+                <input id="inp-kw-name" type="text" placeholder="Cluster Name (e.g. Donald Trump Policy)" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white">
+                <input id="inp-kw-dups" type="text" placeholder="Duplicates (trump, trumps, trump tariffs)" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white">
+                <div class="flex gap-1.5">
+                    <select id="sel-kw-sector" class="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white"></select>
+                    <button onclick="createClusterAPI()" class="px-3 py-1.5 rounded-lg bg-emerald-500 text-slate-950 font-bold text-xs">+ Save</button>
+                </div>
+            </div>
+
+            <div class="p-3 rounded-xl bg-slate-900/90 border border-cyan-500/35 space-y-2">
+                <div class="text-xs font-bold text-cyan-300">Ingest Articles via RSS Feed URL</div>
+                <input id="inp-rss-url" type="text" placeholder="https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white">
+                <button onclick="ingestRssAPI()" class="w-full py-1.5 rounded-lg bg-cyan-500 text-slate-950 font-bold text-xs">Fetch & Store RSS Articles</button>
+            </div>
+
+            <div class="p-3 rounded-xl bg-slate-900/90 border border-amber-500/35 space-y-2">
+                <div class="text-xs font-bold text-amber-300">Connected Google Sheet URL</div>
+                <input id="inp-sheet-url" type="text"
+                    value="https://docs.google.com/spreadsheets/d/15dvCQN8ojQeqq1q105l-qr1lrj_Kr3WOR3LCQb4mdQo/edit?gid=0#gid=0"
+                    class="w-full bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-[10px] font-mono text-slate-300">
+                <button onclick="pullGoogleSheetViaBackend()" class="w-full py-1.5 rounded-lg bg-amber-500 text-slate-950 font-bold text-xs">
+                    Sync Sheet → Backend DB
+                </button>
+            </div>
+        </div>
+    </aside>
+
+    <div class="fixed bottom-3 right-3 w-[340px] glass-hud rounded-2xl shadow-2xl z-30 border border-emerald-500/40 p-3 space-y-2">
+        <div class="flex items-center justify-between">
+            <span class="text-xs font-extrabold text-emerald-300">👽 ZORG-5D • BACKEND SYNCED</span>
+            <button onclick="toggleBotHalt()" id="btn-bot-halt" class="px-2.5 py-0.5 rounded bg-rose-500/25 border border-rose-400/50 text-[10px] font-bold text-rose-200">
+                🛑 Halt
+            </button>
+        </div>
+        <div id="zorg-log" class="text-[11px] text-emerald-100 bg-slate-950/80 p-2 rounded-xl border border-emerald-500/20">
+            Connected to Node/Express persistence API. Double-click any node to burst/collapse its duplicates!
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = window.location.origin.startsWith('http') ? '' : 'http://localhost:3000';
+        let appState = { sectors: [], keywords: [], jaggardPairs: [], articles: [] };
+        let expandedSectors = new Set();
+        let burstKeywords = new Set();
+        let botHalted = false;
+
+        const scene = new THREE.Scene();
+        scene.fog = new THREE.FogExp2(0x030712, 0.008);
+        const camera = new THREE.PerspectiveCamera(58, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 8, 34);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+        const labelRenderer = new THREE.CSS2DRenderer();
+        labelRenderer.setSize(window.innerWidth, window.innerHeight);
+        document.getElementById('label-container').appendChild(labelRenderer.domElement);
+
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+
+        scene.add(new THREE.AmbientLight(0xffffff, 0.85));
+        const pLight = new THREE.PointLight(0x22d3ee, 2.2, 120);
+        pLight.position.set(18, 25, 22);
+        scene.add(pLight);
+
+        const graphGroup = new THREE.Group();
+        scene.add(graphGroup);
+        const clickableMeshes = [];
+
+        const zorgMesh = new THREE.Group();
+        const body = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.35, 0.9, 16), new THREE.MeshStandardMaterial({ color: 0x10b981 }));
+        const head = new THREE.Mesh(new THREE.SphereGeometry(0.36, 16, 16), new THREE.MeshStandardMaterial({ color: 0x34d399 }));
+        head.position.y = 0.72;
+        zorgMesh.add(body, head);
+        scene.add(zorgMesh);
+
+        async function loadBackendState() {
+            try {
+                const res = await fetch(`${API_BASE}/api/state`);
+                appState = await res.json();
+                document.getElementById('backend-status-pill').textContent =
+                    `API Live • ${appState.sectors.length} Sectors • ${appState.keywords.length} Clusters`;
+                rebuild3DScene();
+                renderPanels();
+            } catch (err) {
+                document.getElementById('backend-status-pill').textContent = 'Offline Preview Mode';
+            }
+        }
+
+        function clearGraphGroup() {
+            while (graphGroup.children.length > 0) graphGroup.remove(graphGroup.children[0]);
+            clickableMeshes.length = 0;
+            document.getElementById('label-container').innerHTML = '';
+        }
+
+        function addNodeLabel(obj, html, yOffset = 1.4) {
+            const div = document.createElement('div');
+            div.innerHTML = html;
+            const lbl = new THREE.CSS2DObject(div);
+            lbl.position.set(0, yOffset, 0);
+            obj.add(lbl);
+        }
+
+        function rebuild3DScene() {
+            clearGraphGroup();
+            const secCount = Math.max(1, appState.sectors.length);
+
+            appState.sectors.forEach((sec, idx) => {
+                const phi = Math.acos(-1 + (2 * idx) / secCount);
+                const theta = Math.sqrt(secCount * Math.PI) * phi;
+                const r = 13;
+                const sx = r * Math.cos(theta) * Math.sin(phi);
+                const sy = r * Math.sin(theta) * Math.sin(phi);
+                const sz = r * Math.cos(phi);
+
+                const mesh = new THREE.Mesh(
+                    new THREE.OctahedronGeometry(1.15, 1),
+                    new THREE.MeshStandardMaterial({ color: sec.color || '#22d3ee', emissive: sec.color || '#22d3ee', emissiveIntensity: 0.35 })
+                );
+                mesh.position.set(sx, sy, sz);
+                mesh.userData = { type: 'sector', id: sec.id };
+                graphGroup.add(mesh);
+                clickableMeshes.push(mesh);
+
+                addNodeLabel(mesh, `<div class="px-2 py-0.5 rounded bg-slate-950/85 border border-cyan-400/40 text-[10px] font-bold text-white whitespace-nowrap">${sec.name}</div>`, 1.55);
+
+                if (expandedSectors.has(sec.id)) {
+                    const secKws = appState.keywords.filter(k => k.sectorId === sec.id);
+                    secKws.forEach((kw, kIdx) => {
+                        const ang = (kIdx / Math.max(1, secKws.length)) * Math.PI * 2;
+                        const kx = sx + Math.cos(ang) * 4.2;
+                        const ky = sy + Math.sin(ang) * 4.2;
+                        const kz = sz + ((kIdx % 3) - 1) * 1.8;
+
+                        const kMesh = new THREE.Mesh(
+                            new THREE.SphereGeometry(0.55, 16, 16),
+                            new THREE.MeshStandardMaterial({ color: '#c084fc', emissive: '#9333ea', emissiveIntensity: 0.4 })
+                        );
+                        kMesh.position.set(kx, ky, kz);
+                        kMesh.userData = { type: 'keyword', id: kw.id };
+                        graphGroup.add(kMesh);
+                        clickableMeshes.push(kMesh);
+
+                        const lineGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(sx, sy, sz), new THREE.Vector3(kx, ky, kz)]);
+                        graphGroup.add(new THREE.Line(lineGeo, new THREE.LineBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.55 })));
+
+                        addNodeLabel(kMesh, `<div class="px-1.5 py-0.5 rounded bg-purple-950/90 border border-purple-400/50 text-[9px] font-mono text-purple-100">${kw.name} (${kw.deltaPct})</div>`, 0.9);
+
+                        if (burstKeywords.has(kw.id)) {
+                            (kw.surfaceForms || []).forEach((alias, aIdx) => {
+                                const aAng = (aIdx / kw.surfaceForms.length) * Math.PI * 2;
+                                const ax = kx + Math.cos(aAng) * 2.1;
+                                const ay = ky + Math.sin(aAng) * 2.1;
+                                const aMesh = new THREE.Mesh(
+                                    new THREE.SphereGeometry(0.28, 12, 12),
+                                    new THREE.MeshStandardMaterial({ color: '#34d399' })
+                                );
+                                aMesh.position.set(ax, ay, kz);
+                                graphGroup.add(aMesh);
+
+                                const subLine = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(kx, ky, kz), new THREE.Vector3(ax, ay, kz)]);
+                                graphGroup.add(new THREE.Line(subLine, new THREE.LineBasicMaterial({ color: 0x34d399 })));
+                                addNodeLabel(aMesh, `<div class="px-1 rounded bg-emerald-950/90 text-[8px] font-mono text-emerald-200">${alias}</div>`, 0.5);
+                            });
+                        }
+                    });
+                }
+            });
+        }
+
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        renderer.domElement.addEventListener('dblclick', (e) => {
+            mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+            const hits = raycaster.intersectObjects(clickableMeshes);
+            if (hits.length > 0) {
+                const { type, id } = hits[0].object.userData;
+                if (type === 'sector') {
+                    expandedSectors.has(id) ? expandedSectors.delete(id) : expandedSectors.add(id);
+                } else if (type === 'keyword') {
+                    burstKeywords.has(id) ? burstKeywords.delete(id) : burstKeywords.add(id);
+                }
+                rebuild3DScene();
+            }
+        });
+
+        function renderPanels() {
+            document.getElementById('pane-sectors').innerHTML = appState.sectors.map(s => `
+                <div onclick="expandedSectors.has('${s.id}') ? expandedSectors.delete('${s.id}') : expandedSectors.add('${s.id}'); rebuild3DScene();"
+                    class="p-2.5 rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-slate-800 cursor-pointer flex items-center justify-between">
+                    <span class="text-xs font-bold text-white">${s.name}</span>
+                    <span class="text-[10px] font-mono text-cyan-400">${appState.keywords.filter(k => k.sectorId === s.id).length} clusters</span>
+                </div>
+            `).join('');
+
+            document.getElementById('pane-clusters').innerHTML = appState.keywords.map(k => `
+                <div class="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 flex items-center justify-between gap-2">
+                    <div onclick="expandedSectors.add('${k.sectorId}'); burstKeywords.has('${k.id}') ? burstKeywords.delete('${k.id}') : burstKeywords.add('${k.id}'); rebuild3DScene();" class="cursor-pointer min-w-0">
+                        <div class="text-xs font-bold text-white truncate">${k.name} <span class="text-emerald-400 font-mono text-[10px]">${k.deltaPct}</span></div>
+                        <div class="text-[10px] font-mono text-purple-300 truncate">${(k.surfaceForms || []).join(', ')}</div>
+                    </div>
+                    <button onclick="deleteClusterAPI('${k.id}')" class="px-2 py-1 rounded bg-rose-500/20 hover:bg-rose-500/40 text-[10px] text-rose-300 font-bold">Delete</button>
+                </div>
+            `).join('');
+
+            document.getElementById('pane-jaggard').innerHTML = appState.jaggardPairs.map(j => `
+                <div class="p-2.5 rounded-xl bg-fuchsia-950/30 border border-fuchsia-500/30 flex items-center justify-between gap-2">
+                    <div>
+                        <div class="text-xs font-bold text-fuchsia-200">${j.title}</div>
+                        <div class="text-[10px] font-mono text-slate-300">Jaccard Score: ${j.score}</div>
+                    </div>
+                    <button onclick="deleteJaggardAPI('${j.id}')" class="px-2 py-1 rounded bg-rose-500/20 text-[10px] text-rose-300 font-bold">Delete</button>
+                </div>
+            `).join('');
+
+            document.getElementById('sel-kw-sector').innerHTML = appState.sectors.map(s =>
+                `<option value="${s.id}">${s.name}</option>`
+            ).join('');
+        }
+
+        async function createClusterAPI() {
+            const name = document.getElementById('inp-kw-name').value.trim();
+            const dups = document.getElementById('inp-kw-dups').value.split(',').map(s => s.trim()).filter(Boolean);
+            const sectorId = document.getElementById('sel-kw-sector').value;
+            if (!name) return;
+            await fetch(`${API_BASE}/api/keywords`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, surfaceForms: dups, sectorId })
+            });
+            document.getElementById('inp-kw-name').value = '';
+            document.getElementById('inp-kw-dups').value = '';
+            expandedSectors.add(sectorId);
+            await loadBackendState();
+            document.getElementById('zorg-log').textContent = `Zorg-5D: Stored "${name}" into persistent backend DB!`;
+        }
+
+        async function deleteClusterAPI(id) {
+            await fetch(`${API_BASE}/api/keywords/${id}`, { method: 'DELETE' });
+            await loadBackendState();
+        }
+
+        async function deleteJaggardAPI(id) {
+            await fetch(`${API_BASE}/api/jaggard/${id}`, { method: 'DELETE' });
+            await loadBackendState();
+        }
+
+        async function ingestRssAPI() {
+            const url = document.getElementById('inp-rss-url').value.trim();
+            if (!url) return;
+            const res = await fetch(`${API_BASE}/api/rss`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url })
+            });
+            const data = await res.json();
+            document.getElementById('zorg-log').textContent = `Zorg-5D: Ingested ${data.added || 0} RSS items!`;
+            await loadBackendState();
+        }
+
+        async function pullGoogleSheetViaBackend() {
+            const sheetUrl = document.getElementById('inp-sheet-url').value.trim();
+            const res = await fetch(`${API_BASE}/api/sync-sheet`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sheetUrl })
+            });
+            const data = await res.json();
+            document.getElementById('zorg-log').textContent =
+                `Zorg-5D Sheet Sync: +${data.addedCount || 0} new keywords, +${data.newSectorsCount || 0} new macro sectors!`;
+            await loadBackendState();
+        }
+
+        function switchTab(tab) {
+            document.querySelectorAll('.tab-pane').forEach(el => el.classList.add('hidden'));
+            document.getElementById(`pane-${tab}`).classList.remove('hidden');
+        }
+
+        function toggleBotHalt() {
+            botHalted = !botHalted;
+            document.getElementById('btn-bot-halt').textContent = botHalted ? '🚀 Fly' : '🛑 Halt';
+        }
+
+        function resetCameraView() {
+            camera.position.set(0, 8, 34);
+            controls.target.set(0, 0, 0);
+        }
+
+        const clock = new THREE.Clock();
+        function animate() {
+            requestAnimationFrame(animate);
+            const t = clock.getElapsedTime();
+            if (!botHalted) {
+                zorgMesh.position.set(Math.sin(t * 0.9) * 10, Math.cos(t * 1.3) * 6, Math.cos(t * 0.9) * 10);
+                zorgMesh.rotation.y += 0.03;
+            } else {
+                zorgMesh.position.set(9.5, -5.5, 16);
+                zorgMesh.rotation.set(0, 0, 0);
+            }
+            controls.update();
+            renderer.render(scene, camera);
+            labelRenderer.render(scene, camera);
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            labelRenderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        loadBackendState();
+        animate();
+    </script>
+</body>
+</html>
