@@ -23,4 +23,4 @@ graphrift-5d-dashboard/
    ```bash
    npm start
    ```
-   Open `http://localhost:3000` in your browser.
+   Open `http://localhost:3000` in your browser 
