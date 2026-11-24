@@ -236,6 +236,10 @@ app.get('/api/export.xls', (req, res) => {
     res.send(htmlWorkbook);
 });
 
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'index.html'));
+});
+
 app.listen(PORT, () => {
     console.log(`GraphRift 5D Full-Stack Server running at http://localhost:${PORT}`);
 });
