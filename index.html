@@ -181,6 +181,7 @@
         function rebuild3DScene() {
             clearGraphGroup();
             const secCount = Math.max(1, appState.sectors.length);
+            const q = (document.getElementById('search-input')?.value || '').trim().toLowerCase();
 
             appState.sectors.forEach((sec, idx) => {
                 const phi = Math.acos(-1 + (2 * idx) / secCount);
@@ -201,8 +202,11 @@
 
                 addNodeLabel(mesh, `<div class="px-2 py-0.5 rounded bg-slate-950/85 border border-cyan-400/40 text-[10px] font-bold text-white whitespace-nowrap">${sec.name}</div>`, 1.55);
 
-                if (expandedSectors.has(sec.id)) {
-                    const secKws = appState.keywords.filter(k => k.sectorId === sec.id);
+                if (expandedSectors.has(sec.id) || q.length > 0) {
+                    const secKws = appState.keywords.filter(k =>
+                        k.sectorId === sec.id &&
+                        (!q || k.name.toLowerCase().includes(q) || (k.surfaceForms || []).some(sf => sf.toLowerCase().includes(q)))
+                    );
                     secKws.forEach((kw, kIdx) => {
                         const ang = (kIdx / Math.max(1, secKws.length)) * Math.PI * 2;
                         const kx = sx + Math.cos(ang) * 4.2;
@@ -364,6 +368,8 @@
             camera.position.set(0, 8, 34);
             controls.target.set(0, 0, 0);
         }
+
+        document.getElementById('search-input').addEventListener('input', rebuild3DScene);
 
         const clock = new THREE.Clock();
         function animate() {
